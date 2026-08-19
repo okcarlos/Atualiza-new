@@ -1,0 +1,55 @@
+/* =========================================
+   NEW CORBAN
+========================================= */
+
+.corban-area {
+
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 6px;
+
+    min-width: 180px;
+}
+
+.corban-area label {
+
+    color:
+            var(--texto-secundario);
+
+    font-size: 12px;
+
+    font-weight: 600;
+}
+
+.corban-area select {
+
+    background:
+            #242424;
+
+    color:
+            var(--texto);
+
+    border:
+            1px solid var(--borda);
+
+    border-radius:
+            8px;
+
+    padding:
+            11px 13px;
+
+    font-size:
+            13px;
+
+    outline: none;
+
+    cursor: pointer;
+}
+
+.corban-area select:focus {
+
+    border-color:
+            var(--azul);
+}
