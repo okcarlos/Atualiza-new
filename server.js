@@ -17,24 +17,24 @@ const PORT = process.env.PORT || 3000;
 // NEW CORBAN
 // ============================================
 
-const NEWCORBAN = {
+const NEW = {
 
     IEV: {
 
         TOKEN:
-        process.env.NEWCORBAN_IEV_TOKEN,
+            process.env.NEW_IEV_TOKEN,
 
         BASE_URL:
-        process.env.NEWCORBAN_IEV_BASE_URL
+            process.env.NEW_IEV_BASE_URL
     },
 
     CS: {
 
         TOKEN:
-        process.env.NEWCORBAN_CS_TOKEN,
+            process.env.NEW_CS_TOKEN,
 
         BASE_URL:
-        process.env.NEWCORBAN_CS_BASE_URL
+            process.env.NEW_CS_BASE_URL
     }
 };
 
@@ -69,8 +69,8 @@ const IN100_TIMEOUT = 120;
 // ============================================
 
 if (
-    !NEWCORBAN.IEV.TOKEN ||
-    !NEWCORBAN.IEV.BASE_URL
+    !NEW.IEV.TOKEN ||
+    !NEW.IEV.BASE_URL
 ) {
 
     console.error(
@@ -81,8 +81,8 @@ if (
 }
 
 if (
-    !NEWCORBAN.CS.TOKEN ||
-    !NEWCORBAN.CS.BASE_URL
+    !NEW.CS.TOKEN ||
+    !NEW.CS.BASE_URL
 ) {
 
     console.error(
@@ -107,7 +107,28 @@ if (!IN100_APIKEY) {
 
 const app = express();
 
-app.use(cors());
+// ============================================
+// CORS
+// ============================================
+
+// Temporariamente liberado para testar.
+// Depois podemos restringir somente ao GitHub Pages.
+
+app.use(
+    cors({
+        origin: true,
+        methods: [
+            "GET",
+            "POST",
+            "PUT",
+            "OPTIONS"
+        ],
+        allowedHeaders: [
+            "Content-Type",
+            "Authorization"
+        ]
+    })
+);
 
 app.use(
     express.json()
@@ -142,7 +163,7 @@ const upload = multer({
 function criarAPI(corban) {
 
     const configuracao =
-        NEWCORBAN[corban];
+        NEW[corban];
 
     if (!configuracao) {
 
@@ -154,7 +175,7 @@ function criarAPI(corban) {
     return axios.create({
 
         baseURL:
-        configuracao.BASE_URL,
+            configuracao.BASE_URL,
 
         headers: {
 
@@ -179,7 +200,7 @@ function criarAPI(corban) {
 const apiIN100 = axios.create({
 
     baseURL:
-    IN100_BASE_URL,
+        IN100_BASE_URL,
 
     headers: {
 
@@ -190,7 +211,7 @@ const apiIN100 = axios.create({
             "application/json",
 
         "apikey":
-        IN100_APIKEY
+            IN100_APIKEY
     },
 
     httpsAgent:
@@ -266,9 +287,8 @@ function enviarEvento(
         `data: ${JSON.stringify(mensagem)}\n\n`;
 
     for (
-        const cliente
-        of clientesSSE
-        ) {
+        const cliente of clientesSSE
+    ) {
 
         try {
 
@@ -351,77 +371,80 @@ function enviarEstado() {
         {
 
             executando:
-            processamento.executando,
+                processamento.executando,
 
             etapa:
-            processamento.etapa,
+                processamento.etapa,
 
             corban:
-            processamento.corban,
+                processamento.corban,
+
+            newCorban:
+                processamento.corban,
 
             total:
-            processamento.total,
+                processamento.total,
 
             processados:
-            processamento.processados,
+                processamento.processados,
 
             desbloqueados:
-            processamento.desbloqueados,
+                processamento.desbloqueados,
 
             bloqueados:
-            processamento.bloqueados,
+                processamento.bloqueados,
 
             bloqueadosConcessao:
-            processamento.bloqueadosConcessao,
+                processamento.bloqueadosConcessao,
 
             bloqueadosBeneficiario:
-            processamento.bloqueadosBeneficiario,
+                processamento.bloqueadosBeneficiario,
 
             beneficiosInvalidos:
-            processamento.beneficiosInvalidos,
+                processamento.beneficiosInvalidos,
 
             erros:
-            processamento.erros,
+                processamento.erros,
 
             atualizacoes:
                 processamento.atualizacoes.map(
                     item => ({
 
                         cpf:
-                        item.cpf,
+                            item.cpf,
 
                         cliente:
-                        item.cliente,
+                            item.cliente,
 
                         beneficio:
-                        item.beneficio,
+                            item.beneficio,
 
                         statusAtual:
-                        item.statusAtual,
+                            item.statusAtual,
 
                         novoStatus:
-                        item.novoStatus,
+                            item.novoStatus,
 
                         statusNome:
-                        item.statusNome,
+                            item.statusNome,
 
                         in100Status:
-                        item.in100Status,
+                            item.in100Status,
 
                         blockType:
-                        item.blockType,
+                            item.blockType,
 
                         blockCategory:
-                        item.blockCategory,
+                            item.blockCategory,
 
                         benefitStatus:
-                        item.benefitStatus,
+                            item.benefitStatus,
 
                         benefitSituation:
-                        item.benefitSituation,
+                            item.benefitSituation,
 
                         mensagemIN100:
-                        item.mensagemIN100,
+                            item.mensagemIN100,
 
                         resultado:
                             item.resultado ||
@@ -430,7 +453,7 @@ function enviarEstado() {
                 ),
 
             errosDetalhes:
-            processamento.errosDetalhes
+                processamento.errosDetalhes
         }
     );
 }
@@ -527,7 +550,7 @@ function classificarBloqueioIN100(
                 "CONCESSAO",
 
             status:
-            STATUS.BLOQUEADO,
+                STATUS.BLOQUEADO,
 
             deveAtualizar:
                 true
@@ -549,7 +572,7 @@ function classificarBloqueioIN100(
                 "BENEFICIARIO",
 
             status:
-            STATUS.BLOQUEADO,
+                STATUS.BLOQUEADO,
 
             deveAtualizar:
                 true
@@ -638,7 +661,7 @@ function lerPlanilha(buffer) {
     const worksheet =
         workbook.Sheets[
             nomePlanilha
-            ];
+        ];
 
     const dados =
         XLSX.utils.sheet_to_json(
@@ -655,13 +678,13 @@ function lerPlanilha(buffer) {
 
             for (
                 const chave in linha
-                ) {
+            ) {
 
                 novaLinha[
                     normalizarTexto(
                         chave
                     )
-                    ] =
+                ] =
                     linha[chave];
             }
 
@@ -684,9 +707,8 @@ function removerDuplicados(
     const resultado = [];
 
     for (
-        const linha
-        of linhas
-        ) {
+        const linha of linhas
+    ) {
 
         const cpf =
             limparCPF(
@@ -730,9 +752,8 @@ function agruparPorCPF(
         new Map();
 
     for (
-        const linha
-        of linhas
-        ) {
+        const linha of linhas
+    ) {
 
         const cpf =
             limparCPF(
@@ -770,8 +791,7 @@ async function buscarClienteComRetry(
 
     for (
         let tentativa = 1;
-        tentativa <=
-        MAX_TENTATIVAS;
+        tentativa <= MAX_TENTATIVAS;
         tentativa++
     ) {
 
@@ -785,13 +805,11 @@ async function buscarClienteComRetry(
 
             if (
                 error.response &&
-                error.response.status ===
-                429
+                error.response.status === 429
             ) {
 
                 await esperar(
-                    800 *
-                    tentativa
+                    800 * tentativa
                 );
 
                 continue;
@@ -821,8 +839,7 @@ async function atualizarBeneficioComRetry(
 
     for (
         let tentativa = 1;
-        tentativa <=
-        MAX_TENTATIVAS;
+        tentativa <= MAX_TENTATIVAS;
         tentativa++
     ) {
 
@@ -839,13 +856,11 @@ async function atualizarBeneficioComRetry(
 
             if (
                 error.response &&
-                error.response.status ===
-                429
+                error.response.status === 429
             ) {
 
                 await esperar(
-                    800 *
-                    tentativa
+                    800 * tentativa
                 );
 
                 continue;
@@ -879,16 +894,16 @@ async function consultarIN100(
                 {
 
                     identity:
-                    cpf,
+                        cpf,
 
                     benefitNumber:
-                    beneficio,
+                        beneficio,
 
                     lastHours:
-                    IN100_LAST_HOURS,
+                        IN100_LAST_HOURS,
 
                     timeout:
-                    IN100_TIMEOUT
+                        IN100_TIMEOUT
                 }
             );
 
@@ -925,8 +940,7 @@ async function consultarIN100(
 
         if (
             error.response &&
-            error.response.status ===
-            400
+            error.response.status === 400
         ) {
 
             const dados =
@@ -956,7 +970,7 @@ async function consultarIN100(
                         "BENEFICIO_INVALIDO",
 
                     deveAtualizar:
-                    classificacao.deveAtualizar,
+                        classificacao.deveAtualizar,
 
                     status: {
 
@@ -967,14 +981,14 @@ async function consultarIN100(
                                 : "invalid",
 
                         name:
-                        classificacao.blockCategory
+                            classificacao.blockCategory
                     },
 
                     blockType:
-                    classificacao.blockType,
+                        classificacao.blockType,
 
                     blockCategory:
-                    classificacao.blockCategory,
+                        classificacao.blockCategory,
 
                     benefitStatus:
                         null,
@@ -1010,19 +1024,19 @@ function montarDadosPUT(
     return {
 
         registration_number:
-        beneficio.registration_number,
+            beneficio.registration_number,
 
         benefit_species:
-        beneficio.benefit_species,
+            beneficio.benefit_species,
 
         covenant_id:
-        beneficio.covenant_id,
+            beneficio.covenant_id,
 
         state:
-        beneficio.state,
+            beneficio.state,
 
         benefit_status:
-        novoStatus,
+            novoStatus,
 
         benefit_dispatch_date:
             beneficio.benefit_dispatch_date
@@ -1039,13 +1053,13 @@ function montarDadosPUT(
                 : null,
 
         margin:
-        beneficio.margin,
+            beneficio.margin,
 
         card_margin:
-        beneficio.card_margin,
+            beneficio.card_margin,
 
         calculation_base:
-        beneficio.calculation_base
+            beneficio.calculation_base
     };
 }
 
@@ -1244,7 +1258,7 @@ async function processarPlanilha(
             linhasCliente
         ]
         of grupos
-        ) {
+    ) {
 
         if (
             !processamento.executando
@@ -1260,7 +1274,7 @@ async function processarPlanilha(
             for (
                 const linha
                 of linhasCliente
-                ) {
+            ) {
 
                 adicionarErro(
                     cpf,
@@ -1297,7 +1311,7 @@ async function processarPlanilha(
             for (
                 const linha
                 of linhasCliente
-                ) {
+            ) {
 
                 adicionarErro(
                     cpf,
@@ -1323,7 +1337,7 @@ async function processarPlanilha(
             for (
                 const linha
                 of linhasCliente
-                ) {
+            ) {
 
                 adicionarErro(
                     cpf,
@@ -1346,7 +1360,7 @@ async function processarPlanilha(
         for (
             const linha
             of linhasCliente
-            ) {
+        ) {
 
             const beneficioNumero =
                 normalizarTexto(
@@ -1537,19 +1551,19 @@ async function processarPlanilha(
                 cpf,
 
                 cliente:
-                cliente.name,
+                    cliente.name,
 
                 customerId:
-                cliente.id,
+                    cliente.id,
 
                 beneficio:
-                beneficio.registration_number,
+                    beneficio.registration_number,
 
                 benefitId:
-                beneficio.id,
+                    beneficio.id,
 
                 statusAtual:
-                beneficio.benefit_status,
+                    beneficio.benefit_status,
 
                 novoStatus,
 
@@ -1559,28 +1573,28 @@ async function processarPlanilha(
                     ),
 
                 in100Status:
-                resultadoIN100
-                    .status?.key,
+                    resultadoIN100
+                        .status?.key,
 
                 blockType:
-                resultadoIN100
-                    .blockType,
+                    resultadoIN100
+                        .blockType,
 
                 blockCategory:
-                resultadoIN100
-                    .blockCategory,
+                    resultadoIN100
+                        .blockCategory,
 
                 benefitStatus:
-                resultadoIN100
-                    .benefitStatus,
+                    resultadoIN100
+                        .benefitStatus,
 
                 benefitSituation:
-                resultadoIN100
-                    .benefitSituation,
+                    resultadoIN100
+                        .benefitSituation,
 
                 mensagemIN100:
-                resultadoIN100
-                    .mensagem,
+                    resultadoIN100
+                        .mensagem,
 
                 dadosPUT:
                     montarDadosPUT(
@@ -1714,8 +1728,7 @@ async function executarAtualizacoes() {
 
     for (
         let i = 0;
-        i <
-        processamento.atualizacoes.length;
+        i < processamento.atualizacoes.length;
         i++
     ) {
 
@@ -1738,15 +1751,15 @@ async function executarAtualizacoes() {
                     i + 1,
 
                 total:
-                processamento
-                    .atualizacoes
-                    .length,
+                    processamento
+                        .atualizacoes
+                        .length,
 
                 cpf:
-                item.cpf,
+                    item.cpf,
 
                 beneficio:
-                item.beneficio
+                    item.beneficio
             }
         );
 
@@ -1768,9 +1781,7 @@ async function executarAtualizacoes() {
                 "success"
             );
 
-            await esperar(
-                1000
-            );
+            await esperar(1000);
 
             let verificado =
                 false;
@@ -1895,7 +1906,10 @@ app.get(
                     "keep-alive",
 
                 "X-Accel-Buffering":
-                    "no"
+                    "no",
+
+                "Access-Control-Allow-Origin":
+                    "*"
             }
         );
 
@@ -1907,11 +1921,13 @@ app.get(
             res
         );
 
-        res.write(
-            `data: ${JSON.stringify({
-                tipo: "estado",
-                ...processamento
-            })}\n\n`
+        enviarEvento(
+            "estado",
+            {
+                ...processamento,
+                newCorban:
+                    processamento.corban
+            }
         );
 
         const heartbeat =
@@ -1970,51 +1986,54 @@ app.get(
         res.json({
 
             executando:
-            processamento.executando,
+                processamento.executando,
 
             etapa:
-            processamento.etapa,
+                processamento.etapa,
 
             corban:
-            processamento.corban,
+                processamento.corban,
+
+            newCorban:
+                processamento.corban,
 
             total:
-            processamento.total,
+                processamento.total,
 
             processados:
-            processamento.processados,
+                processamento.processados,
 
             desbloqueados:
-            processamento.desbloqueados,
+                processamento.desbloqueados,
 
             bloqueados:
-            processamento.bloqueados,
+                processamento.bloqueados,
 
             bloqueadosConcessao:
-            processamento
-                .bloqueadosConcessao,
+                processamento
+                    .bloqueadosConcessao,
 
             bloqueadosBeneficiario:
-            processamento
-                .bloqueadosBeneficiario,
+                processamento
+                    .bloqueadosBeneficiario,
 
             beneficiosInvalidos:
-            processamento
-                .beneficiosInvalidos,
+                processamento
+                    .beneficiosInvalidos,
 
             erros:
-            processamento.erros,
+                processamento.erros,
 
             atualizacoes:
-            processamento
-                .atualizacoes,
+                processamento
+                    .atualizacoes,
 
             errosDetalhes:
-            processamento
-                .errosDetalhes,
+                processamento
+                    .errosDetalhes,
 
             logs:
-            processamento.logs
+                processamento.logs
         });
     }
 );
@@ -2029,6 +2048,20 @@ app.post(
     async (req, res) => {
 
         try {
+
+            console.log(
+                "📥 POST /api/processar"
+            );
+
+            console.log(
+                "Arquivo:",
+                req.file?.originalname
+            );
+
+            console.log(
+                "Corban recebido:",
+                req.body.corban
+            );
 
             if (!req.file) {
 
@@ -2052,6 +2085,11 @@ app.post(
                 corban !== "IEV" &&
                 corban !== "CS"
             ) {
+
+                console.error(
+                    "❌ Corban inválido:",
+                    req.body.corban
+                );
 
                 return res
                     .status(400)
@@ -2082,6 +2120,9 @@ app.post(
             res.json({
 
                 sucesso: true,
+
+                newCorban:
+                    corban,
 
                 mensagem:
                     `Processamento iniciado no New Corban ${corban}.`
@@ -2116,6 +2157,11 @@ app.post(
 
         } catch (error) {
 
+            console.error(
+                "❌ Erro /api/processar:",
+                error
+            );
+
             res
                 .status(500)
                 .json({
@@ -2123,7 +2169,7 @@ app.post(
                     sucesso: false,
 
                     erro:
-                    error.message
+                        error.message
                 });
         }
     }
@@ -2174,6 +2220,9 @@ app.post(
 
                 sucesso: true,
 
+                newCorban:
+                    processamento.corban,
+
                 mensagem:
                     "Atualizações iniciadas."
             });
@@ -2207,7 +2256,7 @@ app.post(
                     sucesso: false,
 
                     erro:
-                    error.message
+                        error.message
                 });
         }
     }
@@ -2255,6 +2304,30 @@ app.post(
 );
 
 // ============================================
+// HEALTH CHECK
+// ============================================
+
+app.get(
+    "/",
+    (req, res) => {
+
+        res.json({
+
+            online: true,
+
+            servidor:
+                "Atualiza New Corban",
+
+            status:
+                processamento.etapa,
+
+            corban:
+                processamento.corban
+        });
+    }
+);
+
+// ============================================
 // SERVIDOR
 // ============================================
 
@@ -2264,7 +2337,19 @@ app.listen(
     () => {
 
         console.log(
-            `Servidor iniciado na porta ${PORT}`
+            `🚀 Servidor iniciado na porta ${PORT}`
+        );
+
+        console.log(
+            `IEV: ${NEW.IEV.BASE_URL}`
+        );
+
+        console.log(
+            `CS: ${NEW.CS.BASE_URL}`
+        );
+
+        console.log(
+            `IN100: ${IN100_BASE_URL}`
         );
     }
 );
