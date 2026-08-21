@@ -22,19 +22,19 @@ const NEW = {
     IEV: {
 
         TOKEN:
-            process.env.NEW_IEV_TOKEN,
+            process.env.NEWCORBAN_IEV_TOKEN,
 
         BASE_URL:
-            process.env.NEW_IEV_BASE_URL
+            process.env.NEWCORBAN_IEV_BASE_URL
     },
 
     CS: {
 
         TOKEN:
-            process.env.NEW_CS_TOKEN,
+            process.env.NEWCORBAN_CS_TOKEN,
 
         BASE_URL:
-            process.env.NEW_CS_BASE_URL
+            process.env.NEWCORBAN_CS_BASE_URL
     }
 };
 
