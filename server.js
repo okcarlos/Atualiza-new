@@ -13,93 +13,31 @@ const cors = require("cors");
 
 const PORT = process.env.PORT || 3000;
 
-// ============================================
-// NEW CORBAN
-// ============================================
+// New Corban IEV
+const NEWCORBAN_IEV_TOKEN = process.env.NEWCORBAN_IEV_TOKEN;
+const NEWCORBAN_IEV_BASE_URL = process.env.NEWCORBAN_IEV_BASE_URL;
 
-const NEW = {
+// New Corban CS
+const NEWCORBAN_CS_TOKEN = process.env.NEWCORBAN_CS_TOKEN;
+const NEWCORBAN_CS_BASE_URL = process.env.NEWCORBAN_CS_BASE_URL;
 
-    IEV: {
-
-        TOKEN:
-            process.env.NEWCORBAN_IEV_TOKEN,
-
-        BASE_URL:
-            process.env.NEWCORBAN_IEV_BASE_URL
-    },
-
-    CS: {
-
-        TOKEN:
-            process.env.NEWCORBAN_CS_TOKEN,
-
-        BASE_URL:
-            process.env.NEWCORBAN_CS_BASE_URL
-    }
-};
-
-// ============================================
 // IN100
+const IN100_APIKEY = process.env.IN100_APIKEY;
+const IN100_BASE_URL =
+  process.env.IN100_BASE_URL || "https://integration.ajin.io";
+
+// ============================================
+// CONSTANTES
 // ============================================
 
-const IN100_APIKEY =
-    process.env.IN100_APIKEY;
-
-const IN100_BASE_URL =
-    process.env.IN100_BASE_URL ||
-    "https://integration.ajin.io";
-
-const STATUS = {
-
-    DESBLOQUEADO: 1,
-
-    BLOQUEADO: 3
-};
+const STATUS_DESBLOQUEADO = 1;
+const STATUS_BLOQUEADO = 3;
 
 const INTERVALO_ENTRE_CONSULTAS = 1500;
-
 const INTERVALO_ENTRE_PUTS = 1500;
 
 const IN100_LAST_HOURS = 1;
-
 const IN100_TIMEOUT = 120;
-
-// ============================================
-// VALIDAÇÕES
-// ============================================
-
-if (
-    !NEW.IEV.TOKEN ||
-    !NEW.IEV.BASE_URL
-) {
-
-    console.error(
-        "❌ Credenciais do New Corban IEV não configuradas."
-    );
-
-    process.exit(1);
-}
-
-if (
-    !NEW.CS.TOKEN ||
-    !NEW.CS.BASE_URL
-) {
-
-    console.error(
-        "❌ Credenciais do New Corban CS não configuradas."
-    );
-
-    process.exit(1);
-}
-
-if (!IN100_APIKEY) {
-
-    console.error(
-        "❌ IN100_APIKEY não configurado."
-    );
-
-    process.exit(1);
-}
 
 // ============================================
 // EXPRESS
@@ -107,90 +45,143 @@ if (!IN100_APIKEY) {
 
 const app = express();
 
-// ============================================
-// CORS
-// ============================================
-
-// Temporariamente liberado para testar.
-// Depois podemos restringir somente ao GitHub Pages.
-
 app.use(
-    cors({
-        origin: true,
-        methods: [
-            "GET",
-            "POST",
-            "PUT",
-            "OPTIONS"
-        ],
-        allowedHeaders: [
-            "Content-Type",
-            "Authorization"
-        ]
-    })
+  cors({
+    origin: true,
+    methods: ["GET", "POST", "PUT", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
 );
 
-app.use(
-    express.json()
-);
-
-app.use(
-    express.urlencoded({
-        extended: true
-    })
-);
-
-// ============================================
-// UPLOAD
-// ============================================
+app.use(express.json());
 
 const upload = multer({
-
-    storage:
-        multer.memoryStorage(),
-
-    limits: {
-
-        fileSize:
-            10 * 1024 * 1024
-    }
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
 });
+
+// ============================================
+// AGENT HTTPS
+// ============================================
+
+const httpsAgent = new https.Agent({
+  family: 4,
+  keepAlive: true,
+});
+
+// ============================================
+// VALIDAÇÃO DAS CONFIGURAÇÕES
+// ============================================
+
+console.log("============================================");
+console.log("CONFIGURAÇÃO DO SERVIDOR");
+console.log("============================================");
+
+if (!NEWCORBAN_IEV_TOKEN || !NEWCORBAN_IEV_BASE_URL) {
+  console.log("⚠️ New Corban IEV não configurado.");
+} else {
+  console.log("✅ New Corban IEV configurado.");
+}
+
+if (!NEWCORBAN_CS_TOKEN || !NEWCORBAN_CS_BASE_URL) {
+  console.log("⚠️ New Corban CS não configurado.");
+} else {
+  console.log("✅ New Corban CS configurado.");
+}
+
+if (!IN100_APIKEY) {
+  console.log("⚠️ IN100 APIKEY não configurada.");
+} else {
+  console.log("✅ IN100 APIKEY configurada.");
+}
+
+console.log("============================================");
+
+// ============================================
+// ESTADO GLOBAL DO PROCESSAMENTO
+// ============================================
+
+let processamento = {
+  executando: false,
+
+  etapa: "parado",
+
+  corban: null,
+
+  total: 0,
+  processados: 0,
+
+  desbloqueados: 0,
+  bloqueados: 0,
+
+  bloqueadosConcessao: 0,
+  bloqueadosBeneficiario: 0,
+  beneficiosInvalidos: 0,
+
+  erros: 0,
+
+  atualizacoes: [],
+  errosDetalhes: [],
+  logs: [],
+
+  arquivo: null,
+
+  confirmado: false,
+
+  // ==========================================
+  // PROGRESSO DOS PUTS
+  // ==========================================
+
+  putTotal: 0,
+  putProcessados: 0,
+  putAtual: 0,
+  putCpf: null,
+  putBeneficio: null,
+};
+
+// ============================================
+// CLIENTES SSE
+// ============================================
+
+const clientesSSE = new Set();
 
 // ============================================
 // CRIAR API NEW CORBAN
 // ============================================
 
 function criarAPI(corban) {
+  let token;
+  let baseURL;
 
-    const configuracao =
-        NEW[corban];
+  if (corban === "IEV") {
+    token = NEWCORBAN_IEV_TOKEN;
+    baseURL = NEWCORBAN_IEV_BASE_URL;
+  } else if (corban === "CS") {
+    token = NEWCORBAN_CS_TOKEN;
+    baseURL = NEWCORBAN_CS_BASE_URL;
+  } else {
+    throw new Error(`New Corban inválido: ${corban}`);
+  }
 
-    if (!configuracao) {
+  if (!token || !baseURL) {
+    throw new Error(
+      `Configuração do New Corban ${corban} não encontrada.`
+    );
+  }
 
-        throw new Error(
-            `New Corban inválido: ${corban}`
-        );
-    }
+  return axios.create({
+    baseURL,
+    timeout: 15000,
+    httpsAgent,
 
-    return axios.create({
-
-        baseURL:
-            configuracao.BASE_URL,
-
-        headers: {
-
-            "Content-Type":
-                "application/json",
-
-            "Accept":
-                "application/json",
-
-            "Authorization":
-                `Bearer ${configuracao.TOKEN}`
-        },
-
-        timeout: 15000
-    });
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+  });
 }
 
 // ============================================
@@ -198,447 +189,287 @@ function criarAPI(corban) {
 // ============================================
 
 const apiIN100 = axios.create({
+  baseURL: IN100_BASE_URL,
+  timeout: 180000,
+  httpsAgent,
 
-    baseURL:
-        IN100_BASE_URL,
-
-    headers: {
-
-        "Content-Type":
-            "application/json",
-
-        "Accept":
-            "application/json",
-
-        "apikey":
-            IN100_APIKEY
-    },
-
-    httpsAgent:
-        new https.Agent({
-
-            family: 4,
-
-            keepAlive: true
-        }),
-
-    timeout: 180000
+  headers: {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    apikey: IN100_APIKEY,
+  },
 });
 
 // ============================================
-// ESTADO
-// ============================================
-
-let processamento = {
-
-    executando: false,
-
-    etapa: "parado",
-
-    corban: null,
-
-    total: 0,
-
-    processados: 0,
-
-    desbloqueados: 0,
-
-    bloqueados: 0,
-
-    bloqueadosConcessao: 0,
-
-    bloqueadosBeneficiario: 0,
-
-    beneficiosInvalidos: 0,
-
-    erros: 0,
-
-    atualizacoes: [],
-
-    errosDetalhes: [],
-
-    logs: [],
-
-    arquivo: null,
-
-    confirmado: false
-};
-
-// ============================================
-// SSE
-// ============================================
-
-const clientesSSE =
-    new Set();
-
-function enviarEvento(
-    tipo,
-    dados = {}
-) {
-
-    const mensagem = {
-
-        tipo,
-
-        ...dados
-    };
-
-    const texto =
-        `data: ${JSON.stringify(mensagem)}\n\n`;
-
-    for (
-        const cliente of clientesSSE
-    ) {
-
-        try {
-
-            if (
-                cliente.writableEnded
-            ) {
-
-                clientesSSE.delete(
-                    cliente
-                );
-
-                continue;
-            }
-
-            cliente.write(
-                texto
-            );
-
-        } catch {
-
-            clientesSSE.delete(
-                cliente
-            );
-
-            try {
-                cliente.end();
-            } catch {}
-        }
-    }
-}
-
-// ============================================
-// LOG
-// ============================================
-
-function log(
-    mensagem,
-    tipo = "info"
-) {
-
-    const item = {
-
-        hora:
-            new Date()
-                .toLocaleTimeString(
-                    "pt-BR"
-                ),
-
-        mensagem,
-
-        tipo
-    };
-
-    processamento.logs.push(
-        item
-    );
-
-    if (
-        processamento.logs.length >
-        100
-    ) {
-
-        processamento.logs.shift();
-    }
-
-    enviarEvento(
-        "log",
-        item
-    );
-}
-
-// ============================================
-// ESTADO
-// ============================================
-
-function enviarEstado() {
-
-    enviarEvento(
-        "estado",
-        {
-
-            executando:
-                processamento.executando,
-
-            etapa:
-                processamento.etapa,
-
-            corban:
-                processamento.corban,
-
-            newCorban:
-                processamento.corban,
-
-            total:
-                processamento.total,
-
-            processados:
-                processamento.processados,
-
-            desbloqueados:
-                processamento.desbloqueados,
-
-            bloqueados:
-                processamento.bloqueados,
-
-            bloqueadosConcessao:
-                processamento.bloqueadosConcessao,
-
-            bloqueadosBeneficiario:
-                processamento.bloqueadosBeneficiario,
-
-            beneficiosInvalidos:
-                processamento.beneficiosInvalidos,
-
-            erros:
-                processamento.erros,
-
-            atualizacoes:
-                processamento.atualizacoes.map(
-                    item => ({
-
-                        cpf:
-                            item.cpf,
-
-                        cliente:
-                            item.cliente,
-
-                        beneficio:
-                            item.beneficio,
-
-                        statusAtual:
-                            item.statusAtual,
-
-                        novoStatus:
-                            item.novoStatus,
-
-                        statusNome:
-                            item.statusNome,
-
-                        in100Status:
-                            item.in100Status,
-
-                        blockType:
-                            item.blockType,
-
-                        blockCategory:
-                            item.blockCategory,
-
-                        benefitStatus:
-                            item.benefitStatus,
-
-                        benefitSituation:
-                            item.benefitSituation,
-
-                        mensagemIN100:
-                            item.mensagemIN100,
-
-                        resultado:
-                            item.resultado ||
-                            null
-                    })
-                ),
-
-            errosDetalhes:
-                processamento.errosDetalhes
-        }
-    );
-}
-
-// ============================================
-// UTILIDADES
+// UTILITÁRIOS
 // ============================================
 
 function esperar(ms) {
-
-    return new Promise(
-        resolve => {
-
-            setTimeout(
-                resolve,
-                ms
-            );
-        }
-    );
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function limparCPF(cpf) {
+function limparCPF(valor) {
+  return String(valor ?? "").replace(/\D/g, "");
+}
 
-    return String(
-        cpf ?? ""
-    )
-        .replace(
-            /\D/g,
-            ""
-        );
+function somenteNumeros(valor) {
+  return String(valor ?? "").replace(/\D/g, "");
 }
 
 function normalizarTexto(valor) {
+  return String(valor ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
 
-    return String(
-        valor ?? ""
-    )
-        .trim()
-        .toUpperCase();
+// ============================================
+// NOVA LÓGICA DE FORMATAÇÃO
+// ============================================
+//
+// PRIMEIRA COLUNA = CPF
+// SEGUNDA COLUNA = BENEFÍCIO
+//
+// Os títulos das colunas NÃO importam.
+// ============================================
+
+function formatarCPF(valor) {
+  let numero = somenteNumeros(valor);
+
+  if (!numero) {
+    return "";
+  }
+
+  // Completa até 11 dígitos
+  numero = numero.padStart(11, "0");
+
+  // Caso tenha mais de 11, mantém os últimos 11
+  if (numero.length > 11) {
+    numero = numero.slice(-11);
+  }
+
+  return `${numero.slice(0, 3)}.${numero.slice(
+    3,
+    6
+  )}.${numero.slice(6, 9)}-${numero.slice(9, 11)}`;
+}
+
+function formatarBeneficio(valor) {
+  let numero = somenteNumeros(valor);
+
+  if (!numero) {
+    return "";
+  }
+
+  // Completa até 10 dígitos
+  numero = numero.padStart(10, "0");
+
+  // Caso tenha mais de 10, mantém os últimos 10
+  if (numero.length > 10) {
+    numero = numero.slice(-10);
+  }
+
+  return numero;
 }
 
 // ============================================
 // STATUS
 // ============================================
 
-function nomeStatus(codigo) {
+function nomeStatus(status) {
+  if (Number(status) === STATUS_DESBLOQUEADO) {
+    return "DESBLOQUEADO";
+  }
 
-    if (
-        codigo ===
-        STATUS.BLOQUEADO
-    ) {
+  if (Number(status) === STATUS_BLOQUEADO) {
+    return "BLOQUEADO";
+  }
 
-        return "BLOQUEADO";
-    }
-
-    if (
-        codigo ===
-        STATUS.DESBLOQUEADO
-    ) {
-
-        return "DESBLOQUEADO";
-    }
-
-    return "DESCONHECIDO";
+  return String(status ?? "");
 }
 
 // ============================================
-// CLASSIFICAÇÃO IN100
+// SSE
 // ============================================
 
-function classificarBloqueioIN100(
-    mensagem
-) {
+function enviarEvento(tipo, dados) {
+  const mensagem = `data: ${JSON.stringify({
+    tipo,
+    dados,
+  })}\n\n`;
 
-    const texto =
-        String(
-            mensagem ?? ""
-        )
-            .trim()
-            .toLowerCase();
-
-    if (
-        texto.includes(
-            "benefício bloqueado durante o processo de concessão"
-        )
-    ) {
-
-        return {
-
-            blockType:
-                "blocked_during_concession",
-
-            blockCategory:
-                "CONCESSAO",
-
-            status:
-                STATUS.BLOQUEADO,
-
-            deveAtualizar:
-                true
-        };
+  for (const cliente of clientesSSE) {
+    try {
+      cliente.write(mensagem);
+    } catch (erro) {
+      clientesSSE.delete(cliente);
     }
-
-    if (
-        texto.includes(
-            "benefício bloqueado pelo beneficiário"
-        )
-    ) {
-
-        return {
-
-            blockType:
-                "blocked_by_beneficiary",
-
-            blockCategory:
-                "BENEFICIARIO",
-
-            status:
-                STATUS.BLOQUEADO,
-
-            deveAtualizar:
-                true
-        };
-    }
-
-    if (
-        texto.includes(
-            "número do benefício inválido"
-        )
-    ) {
-
-        return {
-
-            blockType:
-                "invalid_benefit_number",
-
-            blockCategory:
-                "BENEFICIO_INVALIDO",
-
-            status:
-                null,
-
-            deveAtualizar:
-                false
-        };
-    }
-
-    return null;
+  }
 }
 
 // ============================================
-// CONVERTER IN100
+// LOG
 // ============================================
 
-function converterIN100ParaStatus(
-    resposta
-) {
+function log(mensagem, nivel = "info") {
+  const item = {
+    timestamp: new Date().toISOString(),
+    mensagem,
+    nivel,
+  };
 
-    if (!resposta) {
-        return null;
-    }
+  processamento.logs.push(item);
 
-    const blockType =
-        String(
-            resposta.blockType ?? ""
-        )
-            .trim()
-            .toLowerCase();
+  // Mantém no máximo 100 logs
+  if (processamento.logs.length > 100) {
+    processamento.logs.shift();
+  }
 
-    if (
-        blockType ===
-        "not_blocked"
-    ) {
+  enviarEvento("log", item);
+}
 
-        return STATUS.DESBLOQUEADO;
-    }
+// ============================================
+// ENVIAR ESTADO
+// ============================================
 
-    if (
-        blockType !== ""
-    ) {
+function enviarEstado() {
+  const estado = {
+    executando: processamento.executando,
+    etapa: processamento.etapa,
 
-        return STATUS.BLOQUEADO;
-    }
+    corban: processamento.corban,
+    newCorban: processamento.corban,
 
+    total: processamento.total,
+    processados: processamento.processados,
+
+    desbloqueados: processamento.desbloqueados,
+    bloqueados: processamento.bloqueados,
+
+    bloqueadosConcessao:
+      processamento.bloqueadosConcessao,
+
+    bloqueadosBeneficiario:
+      processamento.bloqueadosBeneficiario,
+
+    beneficiosInvalidos:
+      processamento.beneficiosInvalidos,
+
+    erros: processamento.erros,
+
+    atualizacoes: processamento.atualizacoes.map(
+      (item) => ({
+        cpf: item.cpf,
+        cliente: item.cliente,
+        customerId: item.customerId,
+
+        beneficio: item.beneficio,
+        benefitId: item.benefitId,
+
+        statusAtual: item.statusAtual,
+        novoStatus: item.novoStatus,
+
+        statusNome: item.statusNome,
+
+        in100Status: item.in100Status,
+        blockType: item.blockType,
+        blockCategory: item.blockCategory,
+
+        benefitStatus: item.benefitStatus,
+        benefitSituation: item.benefitSituation,
+
+        mensagemIN100: item.mensagemIN100,
+
+        resultado: item.resultado,
+
+        detalhe: item.detalhe || null,
+      })
+    ),
+
+    errosDetalhes: processamento.errosDetalhes,
+
+    logs: processamento.logs,
+
+    confirmado: processamento.confirmado,
+
+    // ==========================================
+    // PROGRESSO DOS PUTS
+    // ==========================================
+
+    putTotal: processamento.putTotal,
+    putProcessados: processamento.putProcessados,
+    putAtual: processamento.putAtual,
+    putCpf: processamento.putCpf,
+    putBeneficio: processamento.putBeneficio,
+  };
+
+  enviarEvento("estado", estado);
+}
+
+// ============================================
+// CLASSIFICAR RESPOSTA IN100
+// ============================================
+
+function classificarMensagemIN100(mensagem) {
+  const texto = normalizarTexto(mensagem);
+
+  if (
+    texto.includes(
+      "beneficio bloqueado durante o processo de concessao"
+    )
+  ) {
+    return {
+      blockType: "blocked_during_concession",
+      blockCategory: "CONCESSAO",
+      status: STATUS_BLOQUEADO,
+      atualizar: true,
+    };
+  }
+
+  if (
+    texto.includes(
+      "beneficio bloqueado pelo beneficiario"
+    )
+  ) {
+    return {
+      blockType: "blocked_by_beneficiary",
+      blockCategory: "BENEFICIARIO",
+      status: STATUS_BLOQUEADO,
+      atualizar: true,
+    };
+  }
+
+  if (
+    texto.includes(
+      "numero do beneficio invalido"
+    )
+  ) {
+    return {
+      blockType: "invalid_benefit_number",
+      blockCategory: "BENEFICIO_INVALIDO",
+      status: null,
+      atualizar: false,
+    };
+  }
+
+  return null;
+}
+
+// ============================================
+// CONVERTER IN100 PARA STATUS
+// ============================================
+
+function converterIN100ParaStatus(blockType) {
+  if (!blockType) {
     return null;
+  }
+
+  if (blockType === "not_blocked") {
+    return STATUS_DESBLOQUEADO;
+  }
+
+  return STATUS_BLOQUEADO;
 }
 
 // ============================================
@@ -646,455 +477,306 @@ function converterIN100ParaStatus(
 // ============================================
 
 function lerPlanilha(buffer) {
+  const workbook = XLSX.read(buffer, {
+    type: "buffer",
+    cellDates: false,
+    raw: true,
+  });
 
-    const workbook =
-        XLSX.read(
-            buffer,
-            {
-                type: "buffer"
-            }
-        );
+  if (!workbook.SheetNames.length) {
+    throw new Error("A planilha não possui nenhuma aba.");
+  }
 
-    const nomePlanilha =
-        workbook.SheetNames[0];
+  const nomeAba = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[nomeAba];
 
-    const worksheet =
-        workbook.Sheets[
-            nomePlanilha
-        ];
+  // ==========================================
+  // IMPORTANTE:
+  //
+  // header: 1 faz a leitura pela posição.
+  // Não dependemos do nome das colunas.
+  // ==========================================
 
-    const dados =
-        XLSX.utils.sheet_to_json(
-            worksheet,
-            {
-                defval: ""
-            }
-        );
+  const dados = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: "",
+    raw: true,
+  });
 
-    return dados.map(
-        linha => {
-
-            const novaLinha = {};
-
-            for (
-                const chave in linha
-            ) {
-
-                novaLinha[
-                    normalizarTexto(
-                        chave
-                    )
-                ] =
-                    linha[chave];
-            }
-
-            return novaLinha;
-        }
-    );
+  return dados;
 }
 
 // ============================================
-// DUPLICATAS
+// REMOVER DUPLICADOS
 // ============================================
 
-function removerDuplicados(
-    linhas
-) {
+function removerDuplicados(linhas) {
+  const vistos = new Set();
+  const resultado = [];
 
-    const vistos =
-        new Set();
+  for (const linha of linhas) {
+    const cpf = limparCPF(linha[0]);
+    const beneficio = somenteNumeros(linha[1]);
 
-    const resultado = [];
-
-    for (
-        const linha of linhas
-    ) {
-
-        const cpf =
-            limparCPF(
-                linha.CPF
-            );
-
-        const beneficio =
-            normalizarTexto(
-                linha.BENEFICIO
-            );
-
-        const chave =
-            `${cpf}|${beneficio}`;
-
-        if (
-            vistos.has(chave)
-        ) {
-
-            continue;
-        }
-
-        vistos.add(chave);
-
-        resultado.push(
-            linha
-        );
+    if (!cpf || !beneficio) {
+      resultado.push(linha);
+      continue;
     }
 
-    return resultado;
-}
+    const chave = `${cpf}|${beneficio}`;
 
-// ============================================
-// AGRUPAR CPF
-// ============================================
-
-function agruparPorCPF(
-    linhas
-) {
-
-    const grupos =
-        new Map();
-
-    for (
-        const linha of linhas
-    ) {
-
-        const cpf =
-            limparCPF(
-                linha.CPF
-            );
-
-        if (
-            !grupos.has(cpf)
-        ) {
-
-            grupos.set(
-                cpf,
-                []
-            );
-        }
-
-        grupos
-            .get(cpf)
-            .push(linha);
+    if (vistos.has(chave)) {
+      continue;
     }
 
-    return grupos;
+    vistos.add(chave);
+    resultado.push(linha);
+  }
+
+  return resultado;
 }
 
 // ============================================
-// GET CLIENTE
+// AGRUPAR POR CPF
 // ============================================
 
-async function buscarClienteComRetry(
-    api,
-    cpf
-) {
+function agruparPorCPF(linhas) {
+  const mapa = new Map();
 
-    const MAX_TENTATIVAS = 6;
+  for (const linha of linhas) {
+    const cpf = limparCPF(linha[0]);
 
-    for (
-        let tentativa = 1;
-        tentativa <= MAX_TENTATIVAS;
-        tentativa++
-    ) {
-
-        try {
-
-            return await api.get(
-                `/customers/cpf/${cpf}`
-            );
-
-        } catch (error) {
-
-            if (
-                error.response &&
-                error.response.status === 429
-            ) {
-
-                await esperar(
-                    800 * tentativa
-                );
-
-                continue;
-            }
-
-            throw error;
-        }
+    if (!cpf) {
+      continue;
     }
 
-    throw new Error(
-        "Limite de requisições atingido."
-    );
+    if (!mapa.has(cpf)) {
+      mapa.set(cpf, []);
+    }
+
+    mapa.get(cpf).push(linha);
+  }
+
+  return mapa;
 }
 
 // ============================================
-// PUT
+// BUSCAR CLIENTE NO NEW CORBAN
+// ============================================
+
+async function buscarClienteComRetry(api, cpf) {
+  const MAX_TENTATIVAS = 6;
+
+  for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+    try {
+      const response = await api.get(
+        `/customers/cpf/${cpf}`
+      );
+
+      return response.data;
+    } catch (erro) {
+      const status = erro.response?.status;
+
+      if (status === 429 && tentativa < MAX_TENTATIVAS) {
+        const espera = 800 * tentativa;
+
+        log(
+          `429 ao consultar cliente ${cpf}. Tentativa ${tentativa}/${MAX_TENTATIVAS}. Aguardando ${espera}ms.`,
+          "warning"
+        );
+
+        await esperar(espera);
+        continue;
+      }
+
+      throw erro;
+    }
+  }
+}
+
+// ============================================
+// ATUALIZAR BENEFÍCIO
 // ============================================
 
 async function atualizarBeneficioComRetry(
-    api,
-    customerId,
-    benefitId,
-    dados
+  api,
+  customerId,
+  benefitId,
+  dados
 ) {
+  const MAX_TENTATIVAS = 6;
 
-    const MAX_TENTATIVAS = 6;
+  for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+    try {
+      const response = await api.put(
+        `/customers/${customerId}/benefits/${benefitId}`,
+        dados
+      );
 
-    for (
-        let tentativa = 1;
-        tentativa <= MAX_TENTATIVAS;
-        tentativa++
-    ) {
+      return response.data;
+    } catch (erro) {
+      const status = erro.response?.status;
 
-        try {
+      if (status === 429 && tentativa < MAX_TENTATIVAS) {
+        const espera = 800 * tentativa;
 
-            return await api.put(
+        log(
+          `429 ao atualizar benefício ${benefitId}. Tentativa ${tentativa}/${MAX_TENTATIVAS}. Aguardando ${espera}ms.`,
+          "warning"
+        );
 
-                `/customers/${customerId}/benefits/${benefitId}`,
+        await esperar(espera);
+        continue;
+      }
 
-                dados
-            );
-
-        } catch (error) {
-
-            if (
-                error.response &&
-                error.response.status === 429
-            ) {
-
-                await esperar(
-                    800 * tentativa
-                );
-
-                continue;
-            }
-
-            throw error;
-        }
+      throw erro;
     }
-
-    throw new Error(
-        "PUT bloqueado por limite de requisições."
-    );
+  }
 }
 
 // ============================================
 // CONSULTAR IN100
 // ============================================
 
-async function consultarIN100(
-    cpf,
-    beneficio
-) {
-
-    try {
-
-        const resposta =
-            await apiIN100.post(
-
-                "/v3/query-inss-balances/finder/await",
-
-                {
-
-                    identity:
-                        cpf,
-
-                    benefitNumber:
-                        beneficio,
-
-                    lastHours:
-                        IN100_LAST_HOURS,
-
-                    timeout:
-                        IN100_TIMEOUT
-                }
-            );
-
-        const resultado =
-            resposta.data;
-
-        if (
-            resultado?.status?.key ===
-            "success"
-        ) {
-
-            return resultado;
-        }
-
-        if (
-            resultado?.status?.key ===
-            "error"
-        ) {
-
-            throw new Error(
-                resultado.status?.note ||
-                "Consulta IN100 retornou erro."
-            );
-        }
-
-        throw new Error(
-            `Status IN100 inesperado: ${
-                resultado?.status?.key ||
-                "desconhecido"
-            }`
-        );
-
-    } catch (error) {
-
-        if (
-            error.response &&
-            error.response.status === 400
-        ) {
-
-            const dados =
-                error.response.data;
-
-            const mensagem =
-                dados?.messages?.[0]?.text ||
-                "";
-
-            const classificacao =
-                classificarBloqueioIN100(
-                    mensagem
-                );
-
-            if (
-                classificacao
-            ) {
-
-                return {
-
-                    bloqueado:
-                        classificacao.status ===
-                        STATUS.BLOQUEADO,
-
-                    invalido:
-                        classificacao.blockCategory ===
-                        "BENEFICIO_INVALIDO",
-
-                    deveAtualizar:
-                        classificacao.deveAtualizar,
-
-                    status: {
-
-                        key:
-                            classificacao.status ===
-                            STATUS.BLOQUEADO
-                                ? "blocked"
-                                : "invalid",
-
-                        name:
-                            classificacao.blockCategory
-                    },
-
-                    blockType:
-                        classificacao.blockType,
-
-                    blockCategory:
-                        classificacao.blockCategory,
-
-                    benefitStatus:
-                        null,
-
-                    benefitSituation:
-                        null,
-
-                    mensagem
-                };
-            }
-        }
-
-        const detalhe =
-            error.response
-                ? `HTTP ${error.response.status}`
-                : error.message;
-
-        throw new Error(
-            `Erro ao consultar IN100: ${detalhe}`
-        );
-    }
-}
-
-// ============================================
-// MONTAR PUT
-// ============================================
-
-function montarDadosPUT(
-    beneficio,
-    novoStatus
-) {
+async function consultarIN100(cpf, beneficio) {
+  try {
+    const response = await apiIN100.post(
+      "/v3/query-inss-balances/finder/await",
+      {
+        identity: cpf,
+        benefitNumber: beneficio,
+        lastHours: IN100_LAST_HOURS,
+        timeout: IN100_TIMEOUT,
+      }
+    );
 
     return {
-
-        registration_number:
-            beneficio.registration_number,
-
-        benefit_species:
-            beneficio.benefit_species,
-
-        covenant_id:
-            beneficio.covenant_id,
-
-        state:
-            beneficio.state,
-
-        benefit_status:
-            novoStatus,
-
-        benefit_dispatch_date:
-            beneficio.benefit_dispatch_date
-                ? beneficio
-                    .benefit_dispatch_date
-                    .substring(0, 10)
-                : null,
-
-        unblock_date:
-            beneficio.unblock_date
-                ? beneficio
-                    .unblock_date
-                    .substring(0, 10)
-                : null,
-
-        margin:
-            beneficio.margin,
-
-        card_margin:
-            beneficio.card_margin,
-
-        calculation_base:
-            beneficio.calculation_base
+      sucesso: true,
+      statusHTTP: response.status,
+      blockType: response.data?.blockType || null,
+      margem:
+        response.data?.consignedCreditBalance ??
+        null,
+      mensagem: null,
     };
+  } catch (error) {
+    if (error.response) {
+      const statusHTTP = error.response.status;
+
+      const mensagem =
+        error.response?.data?.messages?.[0]?.text ||
+        null;
+
+      // ========================================
+      // HTTP 400
+      // ========================================
+
+      if (statusHTTP === 400) {
+        const classificacao =
+          classificarMensagemIN100(mensagem);
+
+        if (classificacao) {
+          return {
+            sucesso: false,
+            statusHTTP,
+            blockType: classificacao.blockType,
+            blockCategory: classificacao.blockCategory,
+            status: classificacao.status,
+            atualizar: classificacao.atualizar,
+            margem: null,
+            mensagem,
+          };
+        }
+      }
+
+      throw new Error(
+        mensagem ||
+          `Erro ao consultar IN100: HTTP ${statusHTTP}`
+      );
+    }
+
+    throw new Error(
+      `Erro ao consultar IN100: ${
+        error.code || error.message
+      }`
+    );
+  }
 }
 
 // ============================================
-// ERRO
+// MONTAR DADOS DO PUT
+// ============================================
+
+function montarDadosPUT(beneficio, novoStatus) {
+  const dados = {
+    registration_number:
+      beneficio.registration_number,
+
+    benefit_species:
+      beneficio.benefit_species,
+
+    covenant_id:
+      beneficio.covenant_id,
+
+    state:
+      beneficio.state,
+
+    benefit_status:
+      novoStatus,
+
+    benefit_dispatch_date:
+      beneficio.benefit_dispatch_date
+        ? String(
+            beneficio.benefit_dispatch_date
+          ).slice(0, 10)
+        : null,
+
+    unblock_date:
+      beneficio.unblock_date
+        ? String(
+            beneficio.unblock_date
+          ).slice(0, 10)
+        : null,
+
+    margin:
+      beneficio.margin,
+
+    card_margin:
+      beneficio.card_margin,
+
+    calculation_base:
+      beneficio.calculation_base,
+  };
+
+  return dados;
+}
+
+// ============================================
+// ADICIONAR ERRO
 // ============================================
 
 function adicionarErro(
+  cpf,
+  beneficio,
+  mensagem,
+  etapa = "processamento"
+) {
+  processamento.erros++;
+
+  const detalhe = {
     cpf,
     beneficio,
-    detalhe,
-    categoria = null
-) {
+    mensagem,
+    etapa,
+    timestamp: new Date().toISOString(),
+  };
 
-    processamento.erros++;
+  processamento.errosDetalhes.push(detalhe);
 
-    const erro = {
-
-        cpf,
-
-        beneficio,
-
-        detalhe,
-
-        categoria
-    };
-
-    processamento
-        .errosDetalhes
-        .push(erro);
-
-    log(
-        `${cpf} | ${beneficio || "-"} — ${detalhe}`,
-        "error"
-    );
+  log(
+    `Erro — CPF ${cpf} — Benefício ${beneficio}: ${mensagem}`,
+    "error"
+  );
 }
 
 // ============================================
@@ -1102,1077 +784,982 @@ function adicionarErro(
 // ============================================
 
 async function processarPlanilha(
-    buffer,
-    nomeArquivo,
-    corban
+  buffer,
+  nomeArquivo,
+  corban
 ) {
+  if (processamento.executando) {
+    throw new Error(
+      "Já existe um processamento em andamento."
+    );
+  }
 
-    if (
-        processamento.executando
-    ) {
+  // ==========================================
+  // RESET
+  // ==========================================
 
-        throw new Error(
-            "Já existe um processamento em andamento."
-        );
+  processamento = {
+    executando: true,
+
+    etapa: "consultando",
+
+    corban,
+
+    total: 0,
+    processados: 0,
+
+    desbloqueados: 0,
+    bloqueados: 0,
+
+    bloqueadosConcessao: 0,
+    bloqueadosBeneficiario: 0,
+    beneficiosInvalidos: 0,
+
+    erros: 0,
+
+    atualizacoes: [],
+    errosDetalhes: [],
+    logs: [],
+
+    arquivo: nomeArquivo,
+
+    confirmado: false,
+
+    putTotal: 0,
+    putProcessados: 0,
+    putAtual: 0,
+    putCpf: null,
+    putBeneficio: null,
+  };
+
+  enviarEstado();
+
+  log(`Arquivo recebido: ${nomeArquivo}`);
+  log(`New Corban selecionado: ${corban}`);
+
+  // ==========================================
+  // API
+  // ==========================================
+
+  const api = criarAPI(corban);
+
+  // ==========================================
+  // LER PLANILHA
+  // ==========================================
+
+  let dados;
+
+  try {
+    dados = lerPlanilha(buffer);
+  } catch (erro) {
+    throw new Error(
+      `Erro ao ler a planilha: ${erro.message}`
+    );
+  }
+
+  if (!dados.length) {
+    throw new Error("A planilha está vazia.");
+  }
+
+  // ==========================================
+  // NOVA LÓGICA:
+  //
+  // NÃO verificamos cabeçalho CPF/BENEFICIO.
+  //
+  // Primeira coluna = CPF
+  // Segunda coluna = benefício
+  // ==========================================
+
+  const linhasDados = dados.slice(1);
+
+  if (!linhasDados.length) {
+    throw new Error(
+      "A planilha não possui dados para processar."
+    );
+  }
+
+  // ==========================================
+  // REMOVER DUPLICADOS
+  // ==========================================
+
+  const linhasSemDuplicados =
+    removerDuplicados(linhasDados);
+
+  const duplicadosRemovidos =
+    linhasDados.length -
+    linhasSemDuplicados.length;
+
+  if (duplicadosRemovidos > 0) {
+    log(
+      `${duplicadosRemovidos} registro(s) duplicado(s) removido(s).`
+    );
+  }
+
+  // ==========================================
+  // TOTAL
+  // ==========================================
+
+  processamento.total =
+    linhasSemDuplicados.length;
+
+  enviarEstado();
+
+  // ==========================================
+  // AGRUPAR POR CPF
+  // ==========================================
+
+  const grupos = agruparPorCPF(
+    linhasSemDuplicados
+  );
+
+  // ==========================================
+  // PROCESSAR CPF POR CPF
+  // ==========================================
+
+  for (const [cpf, linhasCPF] of grupos) {
+    if (!processamento.executando) {
+      break;
     }
 
-    const api =
-        criarAPI(corban);
+    // ========================================
+    // VALIDAR CPF
+    // ========================================
 
-    processamento = {
+    if (cpf.length !== 11) {
+      for (const linha of linhasCPF) {
+        const beneficio = formatarBeneficio(
+          linha[1]
+        );
 
-        executando: true,
+        adicionarErro(
+          formatarCPF(cpf),
+          beneficio,
+          "CPF inválido. É necessário possuir 11 dígitos."
+        );
 
-        etapa: "consultando",
+        processamento.processados++;
 
-        corban,
+        enviarEstado();
+      }
 
-        total: 0,
+      continue;
+    }
 
-        processados: 0,
+    // ========================================
+    // BUSCAR CLIENTE
+    // ========================================
 
-        desbloqueados: 0,
-
-        bloqueados: 0,
-
-        bloqueadosConcessao: 0,
-
-        bloqueadosBeneficiario: 0,
-
-        beneficiosInvalidos: 0,
-
-        erros: 0,
-
-        atualizacoes: [],
-
-        errosDetalhes: [],
-
-        logs: [],
-
-        arquivo: nomeArquivo,
-
-        confirmado: false
-    };
-
-    enviarEstado();
-
-    log(
-        `Planilha recebida: ${nomeArquivo}`
-    );
-
-    log(
-        `New Corban selecionado: ${corban}`
-    );
-
-    let linhas;
+    let cliente;
 
     try {
+      cliente = await buscarClienteComRetry(
+        api,
+        cpf
+      );
+    } catch (erro) {
+      for (const linha of linhasCPF) {
+        const beneficio = formatarBeneficio(
+          linha[1]
+        );
 
-        linhas =
-            lerPlanilha(
-                buffer
+        adicionarErro(
+          formatarCPF(cpf),
+          beneficio,
+          erro.response?.data?.message ||
+            erro.response?.data?.messages?.[0]
+              ?.text ||
+            erro.message,
+          "consulta_cliente"
+        );
+
+        processamento.processados++;
+
+        enviarEstado();
+      }
+
+      continue;
+    }
+
+    if (!cliente) {
+      for (const linha of linhasCPF) {
+        const beneficio = formatarBeneficio(
+          linha[1]
+        );
+
+        adicionarErro(
+          formatarCPF(cpf),
+          beneficio,
+          "Cliente não encontrado no New Corban.",
+          "consulta_cliente"
+        );
+
+        processamento.processados++;
+
+        enviarEstado();
+      }
+
+      continue;
+    }
+
+    const clienteNome =
+      cliente.name ||
+      cliente.nome ||
+      cliente.full_name ||
+      "";
+
+    const customerId =
+      cliente.id ||
+      cliente.customer_id;
+
+    const beneficios =
+      Array.isArray(cliente.benefits)
+        ? cliente.benefits
+        : [];
+
+    // ========================================
+    // PROCESSAR BENEFÍCIOS DO CPF
+    // ========================================
+
+    for (const linha of linhasCPF) {
+      if (!processamento.executando) {
+        break;
+      }
+
+      // ======================================
+      // FORMATAÇÃO PELA POSIÇÃO
+      // ======================================
+
+      const cpfFormatado =
+        formatarCPF(linha[0]);
+
+      const beneficioFormatado =
+        formatarBeneficio(linha[1]);
+
+      const beneficio =
+        somenteNumeros(beneficioFormatado);
+
+      // ======================================
+      // VALIDAR BENEFÍCIO
+      // ======================================
+
+      if (!beneficio || beneficio.length !== 10) {
+        adicionarErro(
+          cpfFormatado,
+          beneficioFormatado,
+          "Número do benefício inválido.",
+          "validacao"
+        );
+
+        processamento.processados++;
+
+        enviarEstado();
+
+        continue;
+      }
+
+      // ======================================
+      // PROCURAR BENEFÍCIO
+      // ======================================
+
+      const beneficioEncontrado =
+        beneficios.find((item) => {
+          const numero =
+            somenteNumeros(
+              item.registration_number
             );
 
-    } catch (error) {
+          return numero === beneficio;
+        });
 
-        processamento.executando =
-            false;
-
-        processamento.etapa =
-            "erro";
-
-        throw new Error(
-            `Erro ao ler planilha: ${error.message}`
-        );
-    }
-
-    if (
-        !linhas.length
-    ) {
-
-        processamento.executando =
-            false;
-
-        processamento.etapa =
-            "erro";
-
-        throw new Error(
-            "A planilha está vazia."
-        );
-    }
-
-    const colunas =
-        Object.keys(
-            linhas[0]
+      if (!beneficioEncontrado) {
+        adicionarErro(
+          cpfFormatado,
+          beneficioFormatado,
+          "Benefício não encontrado no cliente.",
+          "consulta_beneficio"
         );
 
-    if (
-        !colunas.includes("CPF") ||
-        !colunas.includes("BENEFICIO")
-    ) {
+        processamento.processados++;
 
-        processamento.executando =
-            false;
+        enviarEstado();
 
-        processamento.etapa =
-            "erro";
+        continue;
+      }
 
-        throw new Error(
-            "A planilha precisa possuir as colunas CPF e BENEFICIO."
-        );
-    }
+      // ======================================
+      // CONSULTAR IN100
+      // ======================================
 
-    const linhasOriginais =
-        linhas.length;
+      let resultadoIN100;
 
-    linhas =
-        removerDuplicados(
-            linhas
-        );
-
-    log(
-        `${linhas.length} benefício(s) para processar.`
-    );
-
-    if (
-        linhasOriginais !==
-        linhas.length
-    ) {
-
-        log(
-            `${linhasOriginais - linhas.length} duplicata(s) removida(s).`
-        );
-    }
-
-    processamento.total =
-        linhas.length;
-
-    const grupos =
-        agruparPorCPF(
-            linhas
-        );
-
-    for (
-        const [
+      try {
+        resultadoIN100 =
+          await consultarIN100(
             cpf,
-            linhasCliente
-        ]
-        of grupos
-    ) {
-
-        if (
-            !processamento.executando
-        ) {
-
-            break;
-        }
-
-        if (
-            cpf.length !== 11
-        ) {
-
-            for (
-                const linha
-                of linhasCliente
-            ) {
-
-                adicionarErro(
-                    cpf,
-                    linha.BENEFICIO,
-                    "CPF inválido",
-                    "CPF_INVALIDO"
-                );
-
-                processamento.processados++;
-
-                enviarEstado();
-            }
-
-            continue;
-        }
-
-        let respostaCliente;
-
-        try {
-
-            respostaCliente =
-                await buscarClienteComRetry(
-                    api,
-                    cpf
-                );
-
-        } catch (error) {
-
-            const detalhe =
-                error.response
-                    ? `HTTP ${error.response.status}`
-                    : error.message;
-
-            for (
-                const linha
-                of linhasCliente
-            ) {
-
-                adicionarErro(
-                    cpf,
-                    linha.BENEFICIO,
-                    `Erro no New Corban: ${detalhe}`,
-                    "NEW_CORBAN"
-                );
-
-                processamento.processados++;
-
-                enviarEstado();
-            }
-
-            continue;
-        }
-
-        if (
-            !respostaCliente.data ||
-            !respostaCliente.data.success ||
-            !respostaCliente.data.data
-        ) {
-
-            for (
-                const linha
-                of linhasCliente
-            ) {
-
-                adicionarErro(
-                    cpf,
-                    linha.BENEFICIO,
-                    "Cliente não encontrado",
-                    "CLIENTE_NAO_ENCONTRADO"
-                );
-
-                processamento.processados++;
-
-                enviarEstado();
-            }
-
-            continue;
-        }
-
-        const cliente =
-            respostaCliente.data.data;
-
-        for (
-            const linha
-            of linhasCliente
-        ) {
-
-            const beneficioNumero =
-                normalizarTexto(
-                    linha.BENEFICIO
-                );
-
-            if (
-                !beneficioNumero
-            ) {
-
-                adicionarErro(
-                    cpf,
-                    "",
-                    "Benefício não informado",
-                    "BENEFICIO_NAO_INFORMADO"
-                );
-
-                processamento.processados++;
-
-                enviarEstado();
-
-                continue;
-            }
-
-            const beneficios =
-                cliente.benefits ||
-                [];
-
-            const beneficio =
-                beneficios.find(
-                    item =>
-                        normalizarTexto(
-                            item.registration_number
-                        ) ===
-                        beneficioNumero
-                );
-
-            if (
-                !beneficio
-            ) {
-
-                adicionarErro(
-                    cpf,
-                    beneficioNumero,
-                    "Benefício não encontrado no Corban",
-                    "BENEFICIO_NAO_ENCONTRADO"
-                );
-
-                processamento.processados++;
-
-                enviarEstado();
-
-                continue;
-            }
-
-            log(
-                `Consultando IN100: ${cpf} / ${beneficioNumero}`
-            );
-
-            let resultadoIN100;
-
-            try {
-
-                resultadoIN100 =
-                    await consultarIN100(
-                        cpf,
-                        beneficioNumero
-                    );
-
-            } catch (error) {
-
-                adicionarErro(
-                    cpf,
-                    beneficioNumero,
-                    error.message,
-                    "IN100"
-                );
-
-                processamento.processados++;
-
-                enviarEstado();
-
-                continue;
-            }
-
-            if (
-                resultadoIN100.invalido ===
-                true
-            ) {
-
-                processamento
-                    .beneficiosInvalidos++;
-
-                adicionarErro(
-                    cpf,
-                    beneficioNumero,
-                    resultadoIN100.mensagem ||
-                    "Número do benefício inválido",
-                    "BENEFICIO_INVALIDO"
-                );
-
-                processamento.processados++;
-
-                log(
-                    `${cpf} | ${beneficioNumero} — BENEFÍCIO INVÁLIDO. Nenhum PUT será realizado.`,
-                    "warning"
-                );
-
-                enviarEstado();
-
-                continue;
-            }
-
-            let novoStatus;
-
-            if (
-                resultadoIN100.bloqueado ===
-                true
-            ) {
-
-                novoStatus =
-                    STATUS.BLOQUEADO;
-
-            } else {
-
-                novoStatus =
-                    converterIN100ParaStatus(
-                        resultadoIN100
-                    );
-            }
-
-            if (
-                novoStatus ===
-                null
-            ) {
-
-                adicionarErro(
-                    cpf,
-                    beneficioNumero,
-                    "Não foi possível determinar o status pela IN100",
-                    "STATUS_IN100"
-                );
-
-                processamento.processados++;
-
-                enviarEstado();
-
-                continue;
-            }
-
-            if (
-                resultadoIN100.blockCategory ===
-                "CONCESSAO"
-            ) {
-
-                processamento
-                    .bloqueadosConcessao++;
-            }
-
-            if (
-                resultadoIN100.blockCategory ===
-                "BENEFICIARIO"
-            ) {
-
-                processamento
-                    .bloqueadosBeneficiario++;
-            }
-
-            if (
-                beneficio.benefit_status ===
-                novoStatus
-            ) {
-
-                log(
-                    `${cpf} | ${beneficioNumero} — já está como ${nomeStatus(novoStatus)}. Nenhuma alteração necessária.`,
-                    "info"
-                );
-
-                processamento.processados++;
-
-                enviarEstado();
-
-                continue;
-            }
-
-            const item = {
-
-                cpf,
-
-                cliente:
-                    cliente.name,
-
-                customerId:
-                    cliente.id,
-
-                beneficio:
-                    beneficio.registration_number,
-
-                benefitId:
-                    beneficio.id,
-
-                statusAtual:
-                    beneficio.benefit_status,
-
-                novoStatus,
-
-                statusNome:
-                    nomeStatus(
-                        novoStatus
-                    ),
-
-                in100Status:
-                    resultadoIN100
-                        .status?.key,
-
-                blockType:
-                    resultadoIN100
-                        .blockType,
-
-                blockCategory:
-                    resultadoIN100
-                        .blockCategory,
-
-                benefitStatus:
-                    resultadoIN100
-                        .benefitStatus,
-
-                benefitSituation:
-                    resultadoIN100
-                        .benefitSituation,
-
-                mensagemIN100:
-                    resultadoIN100
-                        .mensagem,
-
-                dadosPUT:
-                    montarDadosPUT(
-                        beneficio,
-                        novoStatus
-                    ),
-
-                resultado:
-                    null
-            };
-
-            processamento
-                .atualizacoes
-                .push(item);
-
-            if (
-                novoStatus ===
-                STATUS.DESBLOQUEADO
-            ) {
-
-                processamento
-                    .desbloqueados++;
-
-            } else if (
-                novoStatus ===
-                STATUS.BLOQUEADO
-            ) {
-
-                processamento
-                    .bloqueados++;
-            }
-
-            processamento.processados++;
-
-            let mensagemLog =
-                `${cpf} | ${beneficioNumero} → ${nomeStatus(novoStatus)}`;
-
-            if (
-                resultadoIN100.blockCategory
-            ) {
-
-                mensagemLog +=
-                    ` | ${resultadoIN100.blockCategory}`;
-            }
-
-            log(
-                mensagemLog,
-                novoStatus ===
-                STATUS.BLOQUEADO
-                    ? "blocked"
-                    : "success"
-            );
-
-            enviarEstado();
-
-            await esperar(
-                INTERVALO_ENTRE_CONSULTAS
-            );
-        }
-    }
-
-    processamento.executando =
-        false;
-
-    processamento.etapa =
-        "aguardando_confirmacao";
-
-    log(
-        `Análise concluída: ${processamento.atualizacoes.length} atualização(ões) preparada(s).`,
-        "success"
-    );
-
-    log(
-        `Resumo: ${processamento.desbloqueados} desbloqueado(s), ${processamento.bloqueados} bloqueado(s), ${processamento.bloqueadosConcessao} bloqueio(s) por concessão, ${processamento.bloqueadosBeneficiario} bloqueio(s) pelo beneficiário, ${processamento.beneficiosInvalidos} benefício(s) inválido(s).`,
-        "info"
-    );
-
-    enviarEstado();
-}
-
-// ============================================
-// EXECUTAR PUTS
-// ============================================
-
-async function executarAtualizacoes() {
-
-    if (
-        processamento.executando
-    ) {
-
-        throw new Error(
-            "Já existe uma operação em andamento."
-        );
-    }
-
-    if (
-        processamento.etapa !==
-        "aguardando_confirmacao"
-    ) {
-
-        throw new Error(
-            "Não existe um lote aguardando confirmação."
-        );
-    }
-
-    if (
-        !processamento.atualizacoes.length
-    ) {
-
-        throw new Error(
-            "Nenhuma atualização para executar."
-        );
-    }
-
-    const api =
-        criarAPI(
-            processamento.corban
+            beneficio
+          );
+      } catch (erro) {
+        adicionarErro(
+          cpfFormatado,
+          beneficioFormatado,
+          erro.message,
+          "consulta_in100"
         );
 
-    processamento.executando =
-        true;
-
-    processamento.etapa =
-        "atualizando";
-
-    enviarEstado();
-
-    log(
-        `Iniciando ${processamento.atualizacoes.length} PUT(s) no New Corban ${processamento.corban}...`
-    );
-
-    for (
-        let i = 0;
-        i < processamento.atualizacoes.length;
-        i++
-    ) {
-
-        const item =
-            processamento
-                .atualizacoes[i];
-
-        if (
-            !processamento.executando
-        ) {
-
-            break;
-        }
-
-        enviarEvento(
-            "progresso_put",
-            {
-
-                atual:
-                    i + 1,
-
-                total:
-                    processamento
-                        .atualizacoes
-                        .length,
-
-                cpf:
-                    item.cpf,
-
-                beneficio:
-                    item.beneficio
-            }
-        );
-
-        try {
-
-            await atualizarBeneficioComRetry(
-
-                api,
-
-                item.customerId,
-
-                item.benefitId,
-
-                item.dadosPUT
-            );
-
-            log(
-                `${item.cpf} | ${item.beneficio} — PUT realizado → status ${item.novoStatus}`,
-                "success"
-            );
-
-            await esperar(1000);
-
-            let verificado =
-                false;
-
-            try {
-
-                const verificacao =
-                    await buscarClienteComRetry(
-                        api,
-                        item.cpf
-                    );
-
-                const clienteAtualizado =
-                    verificacao
-                        .data
-                        .data;
-
-                const beneficioAtualizado =
-                    (
-                        clienteAtualizado
-                            .benefits ||
-                        []
-                    ).find(
-                        beneficio =>
-                            normalizarTexto(
-                                beneficio
-                                    .registration_number
-                            ) ===
-                            item.beneficio
-                    );
-
-                if (
-                    beneficioAtualizado &&
-                    beneficioAtualizado
-                        .benefit_status ===
-                    item.novoStatus
-                ) {
-
-                    verificado =
-                        true;
-                }
-
-            } catch {
-
-                verificado =
-                    false;
-            }
-
-            item.resultado =
-                verificado
-                    ? "SUCESSO"
-                    : "PUT REALIZADO - NÃO CONFIRMADO";
-
-            log(
-                verificado
-                    ? `${item.cpf} | ${item.beneficio} — atualização confirmada`
-                    : `${item.cpf} | ${item.beneficio} — PUT realizado, mas não confirmado`,
-                verificado
-                    ? "success"
-                    : "warning"
-            );
-
-        } catch (error) {
-
-            const detalhe =
-                error.response
-                    ? `HTTP ${error.response.status}`
-                    : error.message;
-
-            item.resultado =
-                "ERRO";
-
-            item.detalhe =
-                detalhe;
-
-            log(
-                `${item.cpf} | ${item.beneficio} — Erro no PUT: ${detalhe}`,
-                "error"
-            );
-        }
+        processamento.processados++;
 
         enviarEstado();
 
         await esperar(
-            INTERVALO_ENTRE_PUTS
+          INTERVALO_ENTRE_CONSULTAS
         );
+
+        continue;
+      }
+
+      // ======================================
+      // BENEFÍCIO INVÁLIDO
+      // ======================================
+
+      if (
+        resultadoIN100.blockType ===
+        "invalid_benefit_number"
+      ) {
+        processamento.beneficiosInvalidos++;
+
+        adicionarErro(
+          cpfFormatado,
+          beneficioFormatado,
+          resultadoIN100.mensagem ||
+            "Número do benefício inválido no IN100.",
+          "consulta_in100"
+        );
+
+        processamento.processados++;
+
+        enviarEstado();
+
+        await esperar(
+          INTERVALO_ENTRE_CONSULTAS
+        );
+
+        continue;
+      }
+
+      // ======================================
+      // DETERMINAR NOVO STATUS
+      // ======================================
+
+      let novoStatus = null;
+
+      if (
+        resultadoIN100.status !== undefined &&
+        resultadoIN100.status !== null
+      ) {
+        novoStatus = resultadoIN100.status;
+      } else {
+        novoStatus =
+          converterIN100ParaStatus(
+            resultadoIN100.blockType
+          );
+      }
+
+      if (novoStatus === null) {
+        adicionarErro(
+          cpfFormatado,
+          beneficioFormatado,
+          "Não foi possível determinar o status através do IN100.",
+          "consulta_in100"
+        );
+
+        processamento.processados++;
+
+        enviarEstado();
+
+        await esperar(
+          INTERVALO_ENTRE_CONSULTAS
+        );
+
+        continue;
+      }
+
+      // ======================================
+      // CATEGORIA DO BLOQUEIO
+      // ======================================
+
+      if (
+        resultadoIN100.blockCategory ===
+        "CONCESSAO"
+      ) {
+        processamento.bloqueadosConcessao++;
+      }
+
+      if (
+        resultadoIN100.blockCategory ===
+        "BENEFICIARIO"
+      ) {
+        processamento.bloqueadosBeneficiario++;
+      }
+
+      // ======================================
+      // STATUS ATUAL
+      // ======================================
+
+      const statusAtual = Number(
+        beneficioEncontrado.benefit_status
+      );
+
+      // ======================================
+      // SE NÃO PRECISA ALTERAR
+      // ======================================
+
+      if (statusAtual === novoStatus) {
+        processamento.processados++;
+
+        log(
+          `CPF ${cpfFormatado} — Benefício ${beneficioFormatado}: já está ${nomeStatus(
+            novoStatus
+          )}. Nenhuma alteração necessária.`
+        );
+
+        enviarEstado();
+
+        await esperar(
+          INTERVALO_ENTRE_CONSULTAS
+        );
+
+        continue;
+      }
+
+      // ======================================
+      // CONTADORES
+      // ======================================
+
+      if (
+        novoStatus === STATUS_DESBLOQUEADO
+      ) {
+        processamento.desbloqueados++;
+      }
+
+      if (
+        novoStatus === STATUS_BLOQUEADO
+      ) {
+        processamento.bloqueados++;
+      }
+
+      // ======================================
+      // DADOS DO PUT
+      // ======================================
+
+      const dadosPUT = montarDadosPUT(
+        beneficioEncontrado,
+        novoStatus
+      );
+
+      // ======================================
+      // ADICIONAR À FILA DE ATUALIZAÇÃO
+      // ======================================
+
+      processamento.atualizacoes.push({
+        cpf: cpfFormatado,
+
+        cliente: clienteNome,
+
+        customerId,
+
+        beneficio: beneficioFormatado,
+
+        benefitId: beneficioEncontrado.id,
+
+        statusAtual,
+
+        novoStatus,
+
+        statusNome: nomeStatus(novoStatus),
+
+        in100Status:
+          resultadoIN100.sucesso
+            ? resultadoIN100.blockType
+            : resultadoIN100.status,
+
+        blockType:
+          resultadoIN100.blockType || null,
+
+        blockCategory:
+          resultadoIN100.blockCategory || null,
+
+        benefitStatus:
+          beneficioEncontrado.benefit_status,
+
+        benefitSituation:
+          beneficioEncontrado.benefit_situation,
+
+        mensagemIN100:
+          resultadoIN100.mensagem || null,
+
+        dadosPUT,
+
+        resultado: null,
+      });
+
+      processamento.processados++;
+
+      log(
+        `CPF ${cpfFormatado} — Benefício ${beneficioFormatado}: ${nomeStatus(
+          statusAtual
+        )} → ${nomeStatus(novoStatus)}`
+      );
+
+      enviarEstado();
+
+      await esperar(
+        INTERVALO_ENTRE_CONSULTAS
+      );
     }
+  }
 
-    processamento.executando =
-        false;
+  // ==========================================
+  // FINAL DA ANÁLISE
+  // ==========================================
 
-    processamento.etapa =
-        "finalizado";
+  if (!processamento.executando) {
+    processamento.etapa = "cancelado";
 
     log(
-        "Lote finalizado.",
-        "success"
+      "Processamento cancelado pelo usuário.",
+      "warning"
     );
 
     enviarEstado();
+
+    return;
+  }
+
+  processamento.executando = false;
+  processamento.etapa =
+    "aguardando_confirmacao";
+
+  log(
+    `Análise concluída. ${processamento.atualizacoes.length} benefício(s) aguardando atualização.`
+  );
+
+  enviarEstado();
+}
+
+// ============================================
+// EXECUTAR ATUALIZAÇÕES
+// ============================================
+
+async function executarAtualizacoes() {
+  if (processamento.executando) {
+    throw new Error(
+      "Já existe um processamento em andamento."
+    );
+  }
+
+  if (
+    processamento.etapa !==
+    "aguardando_confirmacao"
+  ) {
+    throw new Error(
+      "O processamento não está aguardando confirmação."
+    );
+  }
+
+  if (!processamento.atualizacoes.length) {
+    throw new Error(
+      "Não existem atualizações para realizar."
+    );
+  }
+
+  const api = criarAPI(
+    processamento.corban
+  );
+
+  processamento.executando = true;
+  processamento.etapa = "atualizando";
+
+  processamento.putTotal =
+    processamento.atualizacoes.length;
+
+  processamento.putProcessados = 0;
+  processamento.putAtual = 0;
+  processamento.putCpf = null;
+  processamento.putBeneficio = null;
+
+  enviarEstado();
+
+  log(
+    `Iniciando ${processamento.putTotal} atualização(ões) no New Corban ${processamento.corban}.`
+  );
+
+  for (
+    let indice = 0;
+    indice < processamento.atualizacoes.length;
+    indice++
+  ) {
+    if (!processamento.executando) {
+      break;
+    }
+
+    const item =
+      processamento.atualizacoes[indice];
+
+    processamento.putAtual = indice + 1;
+    processamento.putCpf = item.cpf;
+    processamento.putBeneficio =
+      item.beneficio;
+
+    enviarEvento("progresso_put", {
+      atual: indice + 1,
+      total: processamento.putTotal,
+      cpf: item.cpf,
+      beneficio: item.beneficio,
+    });
+
+    enviarEstado();
+
+    try {
+      // ========================================
+      // PUT
+      // ========================================
+
+      await atualizarBeneficioComRetry(
+        api,
+        item.customerId,
+        item.benefitId,
+        item.dadosPUT
+      );
+
+      log(
+        `PUT realizado — CPF ${item.cpf} — Benefício ${item.beneficio}.`
+      );
+
+      // ========================================
+      // VERIFICAR NOVAMENTE
+      // ========================================
+
+      await esperar(1000);
+
+      const clienteAtualizado =
+        await buscarClienteComRetry(
+          api,
+          somenteNumeros(item.cpf)
+        );
+
+      const beneficioVerificado =
+        clienteAtualizado?.benefits?.find(
+          (beneficio) =>
+            String(beneficio.id) ===
+            String(item.benefitId)
+        );
+
+      if (
+        beneficioVerificado &&
+        Number(
+          beneficioVerificado.benefit_status
+        ) === Number(item.novoStatus)
+      ) {
+        item.resultado = "SUCESSO";
+
+        log(
+          `Confirmado — CPF ${item.cpf} — Benefício ${item.beneficio} → ${item.statusNome}.`
+        );
+      } else {
+        item.resultado =
+          "PUT REALIZADO - NÃO CONFIRMADO";
+
+        log(
+          `PUT realizado, mas não confirmado — CPF ${item.cpf} — Benefício ${item.beneficio}.`,
+          "warning"
+        );
+      }
+    } catch (erro) {
+      item.resultado = "ERRO";
+
+      item.detalhe =
+        erro.response?.data?.message ||
+        erro.response?.data?.messages?.[0]
+          ?.text ||
+        erro.message;
+
+      log(
+        `Erro no PUT — CPF ${item.cpf} — Benefício ${item.beneficio}: ${item.detalhe}`,
+        "error"
+      );
+    }
+
+    processamento.putProcessados++;
+
+    enviarEstado();
+
+    if (
+      processamento.executando &&
+      indice <
+        processamento.atualizacoes.length - 1
+    ) {
+      await esperar(
+        INTERVALO_ENTRE_PUTS
+      );
+    }
+  }
+
+  // ==========================================
+  // FINAL
+  // ==========================================
+
+  if (!processamento.executando) {
+    processamento.etapa = "cancelado";
+
+    log(
+      "Atualização cancelada pelo usuário.",
+      "warning"
+    );
+
+    enviarEstado();
+
+    return;
+  }
+
+  processamento.executando = false;
+  processamento.etapa = "finalizado";
+
+  processamento.putProcessados =
+    processamento.putTotal;
+
+  log(
+    "Todas as atualizações foram processadas."
+  );
+
+  enviarEstado();
 }
 
 // ============================================
 // SSE
 // ============================================
 
-app.get(
-    "/api/events",
-    (req, res) => {
+app.get("/api/events", (req, res) => {
+  res.setHeader(
+    "Content-Type",
+    "text/event-stream"
+  );
 
-        res.writeHead(
-            200,
-            {
+  res.setHeader(
+    "Cache-Control",
+    "no-cache, no-transform"
+  );
 
-                "Content-Type":
-                    "text/event-stream",
+  res.setHeader(
+    "Connection",
+    "keep-alive"
+  );
 
-                "Cache-Control":
-                    "no-cache, no-transform",
+  res.setHeader(
+    "X-Accel-Buffering",
+    "no"
+  );
 
-                "Connection":
-                    "keep-alive",
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    "*"
+  );
 
-                "X-Accel-Buffering":
-                    "no",
+  res.flushHeaders();
 
-                "Access-Control-Allow-Origin":
-                    "*"
-            }
-        );
+  res.write(": conectado\n\n");
 
-        res.write(
-            ": conectado\n\n"
-        );
+  clientesSSE.add(res);
 
-        clientesSSE.add(
-            res
-        );
+  // ==========================================
+  // ENVIAR ESTADO IMEDIATAMENTE
+  // ==========================================
 
-        enviarEvento(
-            "estado",
-            {
-                ...processamento,
-                newCorban:
-                    processamento.corban
-            }
-        );
+  const estado = {
+    executando:
+      processamento.executando,
 
-        const heartbeat =
-            setInterval(
-                () => {
+    etapa:
+      processamento.etapa,
 
-                    try {
+    corban:
+      processamento.corban,
 
-                        res.write(
-                            ": heartbeat\n\n"
-                        );
+    newCorban:
+      processamento.corban,
 
-                    } catch {
+    total:
+      processamento.total,
 
-                        clearInterval(
-                            heartbeat
-                        );
+    processados:
+      processamento.processados,
 
-                        clientesSSE.delete(
-                            res
-                        );
-                    }
+    desbloqueados:
+      processamento.desbloqueados,
 
-                },
-                15000
-            );
+    bloqueados:
+      processamento.bloqueados,
 
-        req.on(
-            "close",
-            () => {
+    bloqueadosConcessao:
+      processamento.bloqueadosConcessao,
 
-                clearInterval(
-                    heartbeat
-                );
+    bloqueadosBeneficiario:
+      processamento.bloqueadosBeneficiario,
 
-                clientesSSE.delete(
-                    res
-                );
+    beneficiosInvalidos:
+      processamento.beneficiosInvalidos,
 
-                try {
-                    res.end();
-                } catch {}
-            }
-        );
+    erros:
+      processamento.erros,
+
+    atualizacoes:
+      processamento.atualizacoes,
+
+    errosDetalhes:
+      processamento.errosDetalhes,
+
+    logs:
+      processamento.logs,
+
+    confirmado:
+      processamento.confirmado,
+
+    putTotal:
+      processamento.putTotal,
+
+    putProcessados:
+      processamento.putProcessados,
+
+    putAtual:
+      processamento.putAtual,
+
+    putCpf:
+      processamento.putCpf,
+
+    putBeneficio:
+      processamento.putBeneficio,
+  };
+
+  res.write(
+    `data: ${JSON.stringify({
+      tipo: "estado",
+      dados: estado,
+    })}\n\n`
+  );
+
+  // ==========================================
+  // HEARTBEAT
+  // ==========================================
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(": heartbeat\n\n");
+    } catch (erro) {
+      clearInterval(heartbeat);
+      clientesSSE.delete(res);
     }
-);
+  }, 15000);
+
+  // ==========================================
+  // DESCONEXÃO
+  // ==========================================
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    clientesSSE.delete(res);
+
+    try {
+      res.end();
+    } catch (_) {}
+  });
+});
 
 // ============================================
 // STATUS
 // ============================================
 
-app.get(
-    "/api/status",
-    (req, res) => {
+app.get("/api/status", (req, res) => {
+  res.json({
+    online: true,
 
-        res.json({
+    ...processamento,
 
-            executando:
-                processamento.executando,
-
-            etapa:
-                processamento.etapa,
-
-            corban:
-                processamento.corban,
-
-            newCorban:
-                processamento.corban,
-
-            total:
-                processamento.total,
-
-            processados:
-                processamento.processados,
-
-            desbloqueados:
-                processamento.desbloqueados,
-
-            bloqueados:
-                processamento.bloqueados,
-
-            bloqueadosConcessao:
-                processamento
-                    .bloqueadosConcessao,
-
-            bloqueadosBeneficiario:
-                processamento
-                    .bloqueadosBeneficiario,
-
-            beneficiosInvalidos:
-                processamento
-                    .beneficiosInvalidos,
-
-            erros:
-                processamento.erros,
-
-            atualizacoes:
-                processamento
-                    .atualizacoes,
-
-            errosDetalhes:
-                processamento
-                    .errosDetalhes,
-
-            logs:
-                processamento.logs
-        });
-    }
-);
+    newCorban:
+      processamento.corban,
+  });
+});
 
 // ============================================
-// INICIAR
+// PROCESSAR
 // ============================================
 
 app.post(
-    "/api/processar",
-    upload.single("arquivo"),
-    async (req, res) => {
+  "/api/processar",
+  upload.single("arquivo"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          erro: "Envie uma planilha.",
+        });
+      }
 
-        try {
+      const corban = req.body.corban;
 
-            console.log(
-                "📥 POST /api/processar"
-            );
+      if (
+        corban !== "IEV" &&
+        corban !== "CS"
+      ) {
+        return res.status(400).json({
+          erro:
+            "Selecione um New Corban válido: IEV ou CS.",
+        });
+      }
 
-            console.log(
-                "Arquivo:",
-                req.file?.originalname
-            );
+      if (processamento.executando) {
+        return res.status(409).json({
+          erro:
+            "Já existe um processamento em andamento.",
+        });
+      }
 
-            console.log(
-                "Corban recebido:",
-                req.body.corban
-            );
+      res.json({
+        sucesso: true,
+        mensagem:
+          "Processamento iniciado.",
+      });
 
-            if (!req.file) {
+      processarPlanilha(
+        req.file.buffer,
+        req.file.originalname,
+        corban
+      ).catch((erro) => {
+        console.error(
+          "Erro no processamento:",
+          erro
+        );
 
-                return res
-                    .status(400)
-                    .json({
+        processamento.executando = false;
+        processamento.etapa = "erro";
 
-                        sucesso: false,
+        adicionarErro(
+          "",
+          "",
+          erro.message,
+          "processamento"
+        );
 
-                        erro:
-                            "Nenhuma planilha enviada."
-                    });
-            }
+        enviarEstado();
+      });
+    } catch (erro) {
+      console.error(erro);
 
-            const corban =
-                normalizarTexto(
-                    req.body.corban
-                );
-
-            if (
-                corban !== "IEV" &&
-                corban !== "CS"
-            ) {
-
-                console.error(
-                    "❌ Corban inválido:",
-                    req.body.corban
-                );
-
-                return res
-                    .status(400)
-                    .json({
-
-                        sucesso: false,
-
-                        erro:
-                            "Selecione um New Corban válido: IEV ou CS."
-                    });
-            }
-
-            if (
-                processamento.executando
-            ) {
-
-                return res
-                    .status(409)
-                    .json({
-
-                        sucesso: false,
-
-                        erro:
-                            "Já existe um processamento em andamento."
-                    });
-            }
-
-            res.json({
-
-                sucesso: true,
-
-                newCorban:
-                    corban,
-
-                mensagem:
-                    `Processamento iniciado no New Corban ${corban}.`
-            });
-
-            processarPlanilha(
-
-                req.file.buffer,
-
-                req.file.originalname,
-
-                corban
-
-            ).catch(
-                error => {
-
-                    processamento
-                        .executando =
-                        false;
-
-                    processamento.etapa =
-                        "erro";
-
-                    log(
-                        error.message,
-                        "error"
-                    );
-
-                    enviarEstado();
-                }
-            );
-
-        } catch (error) {
-
-            console.error(
-                "❌ Erro /api/processar:",
-                error
-            );
-
-            res
-                .status(500)
-                .json({
-
-                    sucesso: false,
-
-                    erro:
-                        error.message
-                });
-        }
+      return res.status(500).json({
+        erro:
+          erro.message ||
+          "Não foi possível iniciar o processamento.",
+      });
     }
+  }
 );
 
 // ============================================
@@ -2180,86 +1767,71 @@ app.post(
 // ============================================
 
 app.post(
-    "/api/confirmar",
-    async (req, res) => {
+  "/api/confirmar",
+  async (req, res) => {
+    try {
+      if (processamento.executando) {
+        return res.status(409).json({
+          erro:
+            "Já existe um processamento em andamento.",
+        });
+      }
 
-        try {
+      if (
+        processamento.etapa !==
+        "aguardando_confirmacao"
+      ) {
+        return res.status(400).json({
+          erro:
+            "O processamento não está aguardando confirmação.",
+        });
+      }
 
-            if (
-                processamento.executando
-            ) {
+      if (
+        req.body?.confirmar !== true
+      ) {
+        return res.status(400).json({
+          erro:
+            "Confirmação não enviada.",
+        });
+      }
 
-                return res
-                    .status(409)
-                    .json({
+      processamento.confirmado = true;
 
-                        sucesso: false,
+      res.json({
+        sucesso: true,
+        mensagem:
+          "Atualização iniciada.",
+      });
 
-                        erro:
-                            "Ainda existe processamento em andamento."
-                    });
-            }
+      executarAtualizacoes().catch(
+        (erro) => {
+          console.error(
+            "Erro nas atualizações:",
+            erro
+          );
 
-            if (
-                processamento.etapa !==
-                "aguardando_confirmacao"
-            ) {
+          processamento.executando =
+            false;
 
-                return res
-                    .status(400)
-                    .json({
+          processamento.etapa = "erro";
 
-                        sucesso: false,
+          log(
+            `Erro nas atualizações: ${erro.message}`,
+            "error"
+          );
 
-                        erro:
-                            "Não existe lote aguardando confirmação."
-                    });
-            }
-
-            res.json({
-
-                sucesso: true,
-
-                newCorban:
-                    processamento.corban,
-
-                mensagem:
-                    "Atualizações iniciadas."
-            });
-
-            executarAtualizacoes()
-                .catch(
-                    error => {
-
-                        processamento
-                            .executando =
-                            false;
-
-                        processamento.etapa =
-                            "erro";
-
-                        log(
-                            error.message,
-                            "error"
-                        );
-
-                        enviarEstado();
-                    }
-                );
-
-        } catch (error) {
-
-            res
-                .status(500)
-                .json({
-
-                    sucesso: false,
-
-                    erro:
-                        error.message
-                });
+          enviarEstado();
         }
+      );
+    } catch (erro) {
+      return res.status(500).json({
+        erro:
+          erro.message ||
+          "Não foi possível confirmar a atualização.",
+      });
     }
+  }
 );
 
 // ============================================
@@ -2267,89 +1839,68 @@ app.post(
 // ============================================
 
 app.post(
-    "/api/cancelar",
-    (req, res) => {
+  "/api/cancelar",
+  (req, res) => {
+    if (!processamento.executando) {
+      processamento.etapa = "cancelado";
 
-        if (
-            !processamento.executando
-        ) {
+      log(
+        "Processamento cancelado.",
+        "warning"
+      );
 
-            processamento.etapa =
-                "cancelado";
+      enviarEstado();
 
-            enviarEstado();
-
-            return res.json({
-                sucesso: true
-            });
-        }
-
-        processamento.executando =
-            false;
-
-        processamento.etapa =
-            "cancelado";
-
-        log(
-            "Processamento cancelado pelo usuário.",
-            "warning"
-        );
-
-        enviarEstado();
-
-        res.json({
-            sucesso: true
-        });
+      return res.json({
+        sucesso: true,
+        mensagem:
+          "Processamento cancelado.",
+      });
     }
+
+    processamento.executando = false;
+    processamento.etapa = "cancelado";
+
+    log(
+      "Cancelamento solicitado pelo usuário.",
+      "warning"
+    );
+
+    enviarEstado();
+
+    res.json({
+      sucesso: true,
+      mensagem:
+        "Cancelamento solicitado.",
+    });
+  }
 );
 
 // ============================================
 // HEALTH CHECK
 // ============================================
 
-app.get(
-    "/",
-    (req, res) => {
-
-        res.json({
-
-            online: true,
-
-            servidor:
-                "Atualiza New Corban",
-
-            status:
-                processamento.etapa,
-
-            corban:
-                processamento.corban
-        });
-    }
-);
+app.get("/", (req, res) => {
+  res.json({
+    online: true,
+    servico:
+      "Atualização de Benefícios - New Corban + IN100",
+    etapa: processamento.etapa,
+    executando:
+      processamento.executando,
+  });
+});
 
 // ============================================
-// SERVIDOR
+// INICIAR SERVIDOR
 // ============================================
 
 app.listen(
-    PORT,
-    "0.0.0.0",
-    () => {
-
-        console.log(
-            `🚀 Servidor iniciado na porta ${PORT}`
-        );
-
-        console.log(
-            `IEV: ${NEW.IEV.BASE_URL}`
-        );
-
-        console.log(
-            `CS: ${NEW.CS.BASE_URL}`
-        );
-
-        console.log(
-            `IN100: ${IN100_BASE_URL}`
-        );
-    }
+  PORT,
+  "0.0.0.0",
+  () => {
+    console.log(
+      `Servidor rodando na porta ${PORT}`
+    );
+  }
 );
