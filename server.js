@@ -263,11 +263,11 @@ function formatarBeneficio(valor) {
   }
 
   // Completa até 10 dígitos
-  numero = numero.padStart(10, "0");
+  numero = numero.padStart(11, "0");
 
   // Caso tenha mais de 10, mantém os últimos 10
-  if (numero.length > 10) {
-    numero = numero.slice(-10);
+  if (numero.length > 11) {
+    numero = numero.slice(-11);
   }
 
   return numero;
