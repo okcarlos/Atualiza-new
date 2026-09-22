@@ -14,12 +14,12 @@ const cors = require("cors");
 const PORT = process.env.PORT || 3000;
 
 // New Corban IEV
-const NEWCORBAN_IEV_TOKEN = process.env.NEWCORBAN_IEV_TOKEN;
-const NEWCORBAN_IEV_BASE_URL = process.env.NEWCORBAN_IEV_BASE_URL;
+const NEWCORBAN_IEV_TOKEN = process.env.IEV_NEWCORBAN_TOKEN;
+const NEWCORBAN_IEV_BASE_URL = process.env.IEV_NEWCORBAN_BASE_URL;
 
 // New Corban CS
-const NEWCORBAN_CS_TOKEN = process.env.NEWCORBAN_CS_TOKEN;
-const NEWCORBAN_CS_BASE_URL = process.env.NEWCORBAN_CS_BASE_URL;
+const NEWCORBAN_CS_TOKEN = process.env.CS_NEWCORBAN_TOKEN;
+const NEWCORBAN_CS_BASE_URL = process.env.CS_NEWCORBAN_BASE_URL;
 
 // IN100
 const IN100_APIKEY = process.env.IN100_APIKEY;
