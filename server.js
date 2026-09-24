@@ -1,4 +1,3 @@
-
 require("dotenv").config();
 
 const express = require("express");
@@ -23,19 +22,19 @@ const NEW = {
     IEV: {
 
         TOKEN:
-            process.env.IEV_NEWCORBAN_TOKEN,
+            process.env.NEWCORBAN_IEV_TOKEN,
 
         BASE_URL:
-            process.env.IEV_NEWCORBAN_BASE_URL
+            process.env.NEWCORBAN_IEV_BASE_URL
     },
 
     CS: {
 
         TOKEN:
-            process.env.CS_NEWCORBAN_TOKEN,
+            process.env.NEWCORBAN_CS_TOKEN,
 
         BASE_URL:
-            process.env.CS_NEWCORBAN_BASE_URL
+            process.env.NEWCORBAN_CS_BASE_URL
     }
 };
 
